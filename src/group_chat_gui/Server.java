@@ -5,8 +5,15 @@ import javax.swing.border.TitledBorder;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
 import java.net.ServerSocket;
+import java.net.Socket;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.StringTokenizer;
 
 public class Server {
     private JFrame frame;
@@ -164,31 +171,240 @@ public class Server {
 
 
     private void serverStart(int max,int port){
-
+        clients = new ArrayList<>();
+        try {
+            //Set up ServerSocket
+            serverSocket = new ServerSocket(port);
+            serverThread = new ServerThread(serverSocket,max);
+            //Start server thread
+            serverThread.start();
+            isStart = true;
+        } catch (IOException e) {
+            isStart = false;
+            JOptionPane.showMessageDialog(frame,"Server start failed");
+        }
     }
 
     private void closeServer() {
+        if(serverThread!=null){
+            //Stop server thread
+            serverThread.interrupt();
+        }
+        for(int i=clients.size()-1; i>=0;i--){
+            /*
+            *
+            * getWriter()?????
+            *
+            *
+            * */
+            //Send server CLOSE command to all clients
+            clients.get(i).getWriter().println("CLOSE");
+            clients.get(i).getWriter().flush();
+            //Release resource
+            clients.get(i).interrupt();
+            try {
+                clients.get(i).getReader().close();
+                clients.get(i).getWriter().close();
+                clients.get(i).getSocket().close();
+                clients.remove(i);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        if(serverSocket!=null){
+            try {
+                serverSocket.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
+        listModel.removeAllElements();
+        isStart = false;
 
     }
-
 
     //Server send method
     public void send(){
         if(!isStart){
-            JOptionPane.showMessageDialog(frame,);
+            JOptionPane.showMessageDialog(frame,"Server not started");
+            return;
+        }
+        if(clients.size()==0){
+            JOptionPane.showMessageDialog(frame,"no other users online");
+        }
+        String message = txt_message.getText().trim();
+        if(message==null||message.equals("")){
+            JOptionPane.showMessageDialog(frame,"message can not be empty");
+        }
+        sendServerMessage(message);
+        contentArea.append("Server send message: "+message);
+        txt_message.setText(null);
+    }
+
+    //Send system message
+    public void sendServerMessage(String message){
+        for (int i = clients.size()-1; i >=0 ; i--) {
+            clients.get(i).getWriter().println("Server system message: "+message);
+            clients.get(i).getWriter().flush();
         }
     }
 
+    private class ServerThread extends Thread{
+        //Server thread is to start ServerSocket
+        //listen to connection request
+        private ServerSocket serverSocket;
+        private int max;
 
+        public ServerThread(ServerSocket serverSocket, int max) {
+            this.serverSocket = serverSocket;
+            this.max = max;
+        }
 
-
-
-
-
-    private class ServerThread {
+        @Override
+        public void run() {
+            //Keep on receive client connection request
+            while (true){
+                try {
+                    Socket socket = serverSocket.accept();
+                    if(clients.size()==max){
+                        BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                        PrintWriter writer = new PrintWriter(socket.getOutputStream());
+                        //Receive client user profile info
+                        String info = reader.readLine();
+                        StringTokenizer st = new StringTokenizer(info,"@");
+                        User user = new User(st.nextToken(),st.nextToken());
+                        //confirm connection built up
+                        writer.println("MAX@server: sorry, "+user.getName()+" from "+user.getIp()+" , too many users, connect later please");
+                        writer.flush();
+                        //release resource
+                        reader.close();
+                        writer.close();
+                        socket.close();
+                        continue;
+                    }
+                    ClientThread client = new ClientThread(socket);
+                    client.start();
+                    clients.add(client);
+                    listModel.addElement(client.getUser().getName());//Update user list
+                    contentArea.append(client.getUser().getName()+client.getUser().getIp()+" is online\r\n");
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
     }
 
-    private class ClientThread {
+    private class ClientThread extends Thread{
+        private Socket socket;
+        private BufferedReader reader;
+        private PrintWriter writer;
+        private User user;
+
+        public ClientThread(Socket socket) {
+            this.socket = socket;
+            try {
+                reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                writer = new PrintWriter(socket.getOutputStream());
+                //Get user info from client side
+                String userInfo = reader.readLine();
+                StringTokenizer st = new StringTokenizer(userInfo,"@");
+                user = new User(st.nextToken(),st.nextToken());
+                //Response connection successful to client
+                writer.println(user.getName()+" from "+user.getIp()+ " succeed to connect");
+                writer.flush();
+                //List all users to the client
+                if(clients.size()>0){
+                    String temp = "";
+                    for (int i = 0; i < clients.size() ; i++) {
+                        temp += clients.get(i).getUser().getName()+"/"+clients.get(i).getUser().getIp()+
+                                "@";
+                    }
+                    writer.println("USERLIST@"+clients.size()+"@"+temp);
+                    writer.flush();
+                }
+                //Inform all other users, this user is online
+                for(ClientThread client : clients){
+                    if(client!= this){
+                        client.getWriter().println("ADD@"+this.user.getName()+" "+this.user.getIp());
+                        client.getWriter().flush();
+                    }
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
+        @Override
+        public void run() {
+            String message = null;
+            while (true){
+                try {
+                    message = reader.readLine();
+                    if(message.equals("CLOSE")){//client would offline
+                        contentArea.append(this.getUser().getName()+" "+this.getUser().getIp()+" is offline!\r\n");
+                        reader.close();
+                        writer.close();
+                        socket.close();
+                    //send offline info to all other users
+                    for(ClientThread client : clients){
+                        if(client!=this){
+                            client.getWriter().println("DELETE@"+this.user.getName()+" "+this.user.getIp());
+                            client.getWriter().flush();
+                        }
+                    }
+                    listModel.removeElement(this.user.getName());//update the name list
+                    //stop and remove this clientThread
+                    clients.remove(this);
+                    socket.close();
+                    this.interrupt();
+             /*       for (int i = clients.size() - 1; i >= 0; i--) {
+                        if (clients.get(i).getUser() == user) {
+                            ClientThread temp = clients.get(i);
+                            clients.remove(i);// 删除此用户的服务线程
+                            temp.stop();// 停止这条服务线程
+                            return;
+                        }
+                    }*/
+                    }else {
+                        dispatcherMessage(message);
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+
+        private void dispatcherMessage(String message) {
+            StringTokenizer st = new StringTokenizer(message,"@");
+            String source = st.nextToken();
+            String owner = st.nextToken();
+            String content = st.nextToken();
+            message = source+" says: "+content;
+            contentArea.append(message+"\r\n");
+            if(owner.equals("ALL")){
+                for(ClientThread client : clients){
+                    client.getWriter().println(message+" (group info)");
+                    client.getWriter().flush();
+                }
+            }
+        }
+
+        public Socket getSocket() {
+            return socket;
+        }
+
+        public BufferedReader getReader() {
+            return reader;
+        }
+
+        public PrintWriter getWriter() {
+            return writer;
+        }
+
+        public User getUser() {
+            return user;
+        }
     }
 
     //main methods
