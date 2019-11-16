@@ -3,6 +3,8 @@ package group_chat_gui;
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
 import java.awt.*;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.net.ServerSocket;
 import java.util.List;
 
@@ -53,7 +55,7 @@ public class Server {
         south_panel.add(btn_send,"East");
 
         left_panel = new JScrollPane(userList);
-        left_panel.setBorder(new TitledBorder("Users online:"));
+        left_panel.setBorder(new TitledBorder("Users:"));
 
         right_panel = new JScrollPane(contentArea);
         right_panel.setBorder(new TitledBorder("Receives:"));
@@ -80,8 +82,95 @@ public class Server {
         frame.setLocationRelativeTo(null);
         frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         frame.setVisible(true);
+
+        //Handle close frame
+        frame.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                if(isStart){
+                    //shutdown server
+                    closeServer();
+                }
+                //exit program
+                System.exit(0);
+            }
+        });
+
+        //Press enter in txt_message to send message to client
+        txt_message.addActionListener(l->{
+            send();
+        });
+
+        //Press btn_send to send message to client
+        btn_send.addActionListener(l->{
+            send();
+        });
+
+        //Press btn_start to start server
+        btn_start.addActionListener(l->{
+            if(isStart){
+                JOptionPane.showMessageDialog(frame,"Server is already started",
+                        "Error",
+                        JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            int max=1, port=1;
+            try {
+                max = Integer.parseInt(txt_max.getText());
+                if(max<=0){
+                    throw new Exception();
+                }
+            }catch (Exception e){
+                JOptionPane.showMessageDialog(frame,"Limits must be a positive integer larger than 0",
+                        "Error",
+                        JOptionPane.ERROR_MESSAGE);
+            }
+
+            try{
+                port = Integer.parseInt(txt_port.getText());
+                if(port<=0){
+                    throw new Exception();
+                }
+            }catch (Exception e){
+                JOptionPane.showMessageDialog(frame,"Port must be a positive integer larger than 0",
+                        "Error",
+                        JOptionPane.ERROR_MESSAGE);
+            }
+            //start server
+            serverStart(max,port);
+            contentArea.append("Server started at port: "+port+" with max limit as "+max);
+            JOptionPane.showMessageDialog(frame,"Server started");
+            txt_max.setEnabled(false);
+            txt_port.setEnabled(false);
+            btn_stop.setEnabled(true);
+        });
+
+        //Press btn_stop to stop server
+        btn_stop.addActionListener(l->{
+            if(!isStart){
+                JOptionPane.showMessageDialog(frame,"Server is not on, no need to shut it down",
+                        "Error",
+                        JOptionPane.ERROR_MESSAGE);
+            }
+            closeServer();
+            btn_start.setEnabled(true);
+            txt_max.setEnabled(true);
+            txt_port.setEnabled(true);
+            btn_stop.setEnabled(false);
+            contentArea.append("Server shutdown");
+            JOptionPane.showMessageDialog(frame,"Server shutdown");
+        });
     }
-/*
+
+
+    private void serverStart(int max,int port){
+
+    }
+
+    private void closeServer() {
+
+    }
+
 
     //Server send method
     public void send(){
@@ -89,7 +178,7 @@ public class Server {
             JOptionPane.showMessageDialog(frame,);
         }
     }
-*/
+
 
 
 
